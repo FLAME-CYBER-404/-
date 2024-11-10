@@ -5,6 +5,8 @@ import os
 import time
 import base64
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from threading import Thread
+from flask import Flask
 
 BOT_TOKEN = '6952221734:AAFKWViRgT-N9ve2Fhrpqmqo19iXBQ8gY_M'  # Token for the Telegram Bot
 ADMIN_CHAT_ID = '6078665585'  # Admin's Telegram Chat ID
@@ -185,6 +187,13 @@ def handle_user_messages(message):
                     remaining_hours = remaining_time // 3600
                     remaining_minutes = (remaining_time % 3600) // 60
                     bot.reply_to(message, f"You've reached the limit of 10 images. Please wait {remaining_hours} hours and {remaining_minutes} minutes before generating more.")
+                    # Send premium advertisement message
+                    premium_message = (
+                        "✨ Want to generate unlimited images? ✨\n"
+                        "Upgrade to premium to remove limits and access high-quality options!\n"
+                        "Contact @Nonewhs for premium subscription details."
+                    )
+                    bot.send_message(message.chat.id, premium_message)
         else:
             bot.reply_to(message, "Generating image, please wait...")
             generate_image(message, prompt, free=False)  # Premium users have no limit
@@ -206,60 +215,63 @@ def generate_image(message, prompt, free=True):
         if response.status_code == 200 and 'data' in response_json and 'photo' in response_json['data']:
             image_data = base64.b64decode(response_json['data']['photo'])
             bot.send_photo(message.chat.id, image_data)
-
-            # Check user subscription status to send the appropriate message
+            
+            # Send appropriate message based on user's subscription
             user_id = str(message.chat.id)
-            if users[user_id]['subscription'] == 'free':
+            if user_id in users and users[user_id]['subscription'] == 'premium':
+                bot.send_message(message.chat.id, "🎉 Thank you for being a premium user! Enjoy your high-quality image! 🎉")
+            else:
                 premium_message = (
-                    "✨ Enjoy your generated image! ✨\n"
-                    "If you’d like to generate unlimited images and access higher quality options, consider upgrading to premium!\n"
-                    "Contact @Nonewhs for premium subscription details."
+                    "🚀 Upgrade to premium for unlimited access! 🚀\n"
+                    "Unlock all features and enjoy high-quality image generation.\n"
+                    "Contact @Nonewhs for details."
                 )
                 bot.send_message(message.chat.id, premium_message)
-            else:
-                thank_you_message = "Thank you for being a premium member! Enjoy your unlimited image generation."
-                bot.send_message(message.chat.id, thank_you_message)
-
         else:
-            error_message = response_json.get('message', 'Failed to generate image. Please try again.')
-            bot.reply_to(message, error_message)
-
+            bot.reply_to(message, "Failed to generate the image. Please try again later.")
     except Exception as e:
-        bot.reply_to(message, f"An error occurred: {str(e)}")
+        bot.reply_to(message, f"Error: {str(e)}")
 
-# Function to send notice to all users
 def send_notice_to_users(message):
-    notice = message.text
-    for user_id in users.keys():
-        bot.send_message(user_id, notice)
+    notice_message = message.text
+    for user_id in users:
+        try:
+            bot.send_message(user_id, notice_message)
+        except Exception as e:
+            print(f"Failed to send message to user {user_id}: {e}")
     bot.send_message(ADMIN_CHAT_ID, "Notice sent to all users.")
 
-# Function to send ads to all users
 def send_ads_to_users(message):
-    ad = message.text
-    for user_id in users.keys():
-        bot.send_message(user_id, ad)
+    ad_message = message.text
+    for user_id in users:
+        try:
+            bot.send_message(user_id, ad_message)
+        except Exception as e:
+            print(f"Failed to send ad to user {user_id}: {e}")
     bot.send_message(ADMIN_CHAT_ID, "Ads sent to all users.")
 
 def add_premium_user(message):
-    user_id = message.text.strip()
+    user_id = message.text
     if user_id in users:
         users[user_id]['subscription'] = 'premium'
         save_users(users)
-        bot.send_message(user_id, "You have been upgraded to premium! Enjoy unlimited access.")
-        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} has been upgraded to premium.")
+        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} added as a premium user.")
     else:
-        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} not found.")
+        bot.send_message(ADMIN_CHAT_ID, "User ID not found.")
 
 def remove_premium_user(message):
-    user_id = message.text.strip()
+    user_id = message.text
     if user_id in users:
         users[user_id]['subscription'] = 'free'
         save_users(users)
-        bot.send_message(user_id, "Your premium access has been removed. You are now a free user.")
-        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} has been downgraded to free.")
+        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} removed from premium access.")
     else:
-        bot.send_message(ADMIN_CHAT_ID, f"User {user_id} not found.")
+        bot.send_message(ADMIN_CHAT_ID, "User ID not found.")
 
-setup_commands()
-bot.polling(none_stop=True)
+app = Flask(__name__)
+
+if __name__ == "__main__":
+    setup_commands()
+    Thread(target=bot.polling, kwargs={"none_stop": True}).start()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+                
